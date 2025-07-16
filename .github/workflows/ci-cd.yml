@@ -1,5 +1,4 @@
 # .github/workflows/ci-cd.yml
-
 name: CI/CD
 
 on:
@@ -7,36 +6,43 @@ on:
     branches:
       - master
 
+env:
+  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
+  ACR_NAME: ${{ secrets.ACR_NAME }}
+
 jobs:
   build-test-push-deploy:
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Check out your code
       - name: Checkout code
         uses: actions/checkout@v3
 
+      # 2. Log in to Azure (for both ACR & Web App)
       - name: Azure login
         uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # 3. Log in to Azure Container Registry
       - name: ACR login
         run: |
-          REGISTRY=${{ secrets.ACR_LOGIN_SERVER }}
-          ACR_NAME=${REGISTRY%%.*}          # strip off .azurecr.io
+          echo "Logging in to ACR: $ACR_NAME"
           az acr login --name "$ACR_NAME"
 
+      # 4. Build the image (tagged by commit SHA)
       - name: Build Docker image
         run: |
-          REGISTRY=${{ secrets.ACR_LOGIN_SERVER }}
-          IMAGE_SHA="$REGISTRY/proofreading-api:${{ github.sha }}"
-          echo "Building $IMAGE_SHA"
-          docker build . -t "$IMAGE_SHA"
+          SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
+          echo "Building $SHA_IMAGE"
+          docker build . -t "$SHA_IMAGE"
 
-      - name: Run & smoke-test container
+      # 5. Run & smoke-test the SHA image
+      - name: Run & test container
         run: |
-          IMAGE_SHA="${{ secrets.ACR_LOGIN_SERVER }}/proofreading-api:${{ github.sha }}"
-          docker run -d --name api-test -p 8000:8000 "$IMAGE_SHA"
+          SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
+          docker run -d --name api-test -p 8000:8000 "$SHA_IMAGE"
           for i in {1..10}; do
             if curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
               echo "✅ Service is up"
@@ -51,23 +57,28 @@ jobs:
             exit 1
           fi
 
+      # 6. Tear down the test container
       - name: Tear down test container
         if: always()
         run: |
           docker stop api-test || true
           docker rm api-test  || true
 
+      # 7. Tag & push both SHA and latest images to ACR
       - name: Tag & push images to ACR
         run: |
-          REGISTRY=${{ secrets.ACR_LOGIN_SERVER }}
-          IMAGE_SHA="$REGISTRY/proofreading-api:${{ github.sha }}"
-          IMAGE_LATEST="$REGISTRY/proofreading-api:latest"
-          docker tag "$IMAGE_SHA" "$IMAGE_LATEST"
-          docker push "$IMAGE_SHA"
-          docker push "$IMAGE_LATEST"
+          SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
+          LATEST_IMAGE="$REGISTRY/proofreading-api:latest"
+          echo "Pushing $SHA_IMAGE"
+          docker push "$SHA_IMAGE"
+          echo "Tagging $LATEST_IMAGE"
+          docker tag "$SHA_IMAGE" "$LATEST_IMAGE"
+          echo "Pushing $LATEST_IMAGE"
+          docker push "$LATEST_IMAGE"
 
+      # 8. Deploy the latest image to your Web App for Containers
       - name: Deploy to Azure Web App for Containers
         uses: azure/webapps-deploy@v2
         with:
           app-name: proofreader-app-container
-          images: ${{ secrets.ACR_LOGIN_SERVER }}/proofreading-api:latest
+          images:   ${{ secrets.ACR_LOGIN_SERVER }}/proofreading-api:latest
