@@ -78,5 +78,6 @@ jobs:
       - name: Deploy to Azure Web App for Containers
         uses: azure/webapps-deploy@v2
         with:
-          app-name: proofreader-app-container
-          images:   ${{ env.REGISTRY }}/proofreading-api:latest
+          app-name:        proofreader-app-container
+          resource-group:  ${{ secrets.AZURE_RESOURCE_GROUP }}
+          images:          ${{ env.REGISTRY }}/proofreading-api:latest
