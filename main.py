@@ -1,5 +1,11 @@
 import os
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from opencensus.ext.azure.trace_exporter import AzureExporter
+from opencensus.trace.samplers import ProbabilitySampler
+from opencensus.ext.fastapi.fastapi_middleware import FastAPIMiddleware
+from applicationinsights import TelemetryClient
+from opencensus.ext.azure.log_exporter import AzureLogHandler
+import logging
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import SQLModel, create_engine, Session
 from fastapi.staticfiles import StaticFiles
@@ -13,10 +19,12 @@ DATABASE_URL = os.getenv(
 )
 engine = create_engine(DATABASE_URL, echo=True)
 
+# ——— Read your App Insights connection string from .env ———
+conn_str = os.getenv("APPINSIGHTS_CONNECTION_STRING")
 
 app = FastAPI(
     title="Proofreading API MVP",
-    description="A simple service to ping and eventually proofread text.",
+    description="A powerful tool to proofread text.",
     version="0.1.0",
 )
 
@@ -27,6 +35,33 @@ app.add_middleware(
     allow_methods=["*"],            # allow POST, GET, OPTIONS, etc.
     allow_headers=["*"],            # allow Content-Type, Authorization, etc.
 )
+
+app.add_middleware(
+    FastAPIMiddleware,
+    exporter=AzureExporter(connection_string=conn_str),
+    sampler=ProbabilitySampler(rate=1.0),
+)
+
+tc = TelemetryClient(conn_str)
+
+@app.middleware("http")
+async def catch_exceptions(request: Request, call_next):
+    try:
+        response = await call_next(request)
+        return response
+    except Exception:
+        # Automatically records the exception (stack trace + context)
+        tc.track_exception()
+        tc.flush()
+        # Re-raise so FastAPI still returns a 500
+        raise
+
+
+logger = logging.getLogger("proofread-api")
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+logger.addHandler(AzureLogHandler(connection_string=conn_str))
+
 
 @app.on_event("startup")
 def on_startup():
@@ -42,7 +77,7 @@ class Highlight(BaseModel):
 
 class ProofreadResponse(BaseModel):
     text: str
-    highlights: List[Highlight]
+    suggestions: List[Highlight]
 
 @app.get("/")
 def root():
@@ -60,6 +95,9 @@ def proofread(req: ProofreadRequest):
     span = {"start": 0, "end": 5}
     suggestion_text = "Dummy suggestion"
 
+    tc.track_metric("proofread_calls", 1)
+    tc.flush()
+
     # 4.2 – Persist into SQLite
     with Session(engine) as session:
         suggestion = Suggestion(
@@ -71,6 +109,7 @@ def proofread(req: ProofreadRequest):
         session.add(suggestion)
         session.commit()  # writes row to suggestions.db
 
+    logger.info("proofread called", extra={"text_length": len(req.text)})
     # 4.3 – Return response as before
     return {
         "text": text,
@@ -82,4 +121,4 @@ def proofread(req: ProofreadRequest):
         ]
     }
 
-app.mount("/", StaticFiles(directory="frontend", html=True), name="static")
+app.mount("/frontend", StaticFiles(directory="frontend", html=True), name="static")

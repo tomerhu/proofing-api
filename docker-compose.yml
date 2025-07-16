@@ -10,8 +10,11 @@ services:
       - sqlite_data:/app/db
       - .:/app
       - ./db:/app/db
+    env_file:
+      - .env
     ports:
       - "8000:8000"
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     environment:
       # If you read DATABASE_URL from env in your code:
       - DATABASE_URL=sqlite:///./db/app.db
