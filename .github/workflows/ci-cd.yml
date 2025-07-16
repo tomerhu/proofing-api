@@ -31,9 +31,9 @@ jobs:
         run: |
           echo "✅ Using subscription: $(az account show --query id -o tsv)"
           echo "🔍 Verifying ACR exists..."
-          az acr show --name "$ACR_NAME" --only-show-errors
+          az acr show --name $ACR_NAME --only-show-errors
           echo "🔐 Logging in to ACR: $ACR_NAME"
-          az acr login --name "$ACR_NAME"
+          az acr login --name $ACR_NAME
 
       # 4. Build a SHA‐tagged image
       - name: Build Docker image
