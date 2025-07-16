@@ -23,6 +23,7 @@ DATABASE_URL = os.getenv(
 engine = create_engine(DATABASE_URL, echo=True)
 
 # ——— Read your App Insights connection string from .env ———
+conn_str = os.getenv("APPINSIGHTS_CONNECTION_STRING")
 instr_key = os.getenv("APPINSIGHTS_INSTRUMENTATION_KEY")
 if instr_key:
     tc = TelemetryClient(instr_key)
