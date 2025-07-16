@@ -8,52 +8,48 @@ on:
       - master
 
 env:
-  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}       # e.g. proofreadingacr-<hash>.azurecr.io
-  ACR_NAME: ${{ secrets.ACR_NAME }}               # e.g. proofreadingacr
-  AZ_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  # The ACR FQDN (with its auto-appended hash, if any)
+  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
 
 jobs:
   build-test-push-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout
+      # 1. Check out your code
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2. Login to Azure
+      # 2. Login to Azure and select the right subscription
       - name: Azure login
         uses: azure/login@v1
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          creds:           ${{ secrets.AZURE_CREDENTIALS }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # 3. Ensure CLI is using the correct subscription
-      - name: Set Azure subscription
-        run: |
-          echo "Switching to subscription $AZ_SUBSCRIPTION_ID"
-          az account set --subscription "$AZ_SUBSCRIPTION_ID"
-          echo "Current subscription: $(az account show --query name -o tsv)"
-
-      # 4. Verify & login to ACR
+      # 3. Resolve your ACR resource name & login
       - name: ACR login
         run: |
-          echo "Verifying ACR exists: $ACR_NAME"
-          az acr show --name "$ACR_NAME" --only-show-errors
-          echo "Logging in to ACR: $ACR_NAME"
+          echo "Looking up registry name for $REGISTRY…"
+          ACR_NAME=$(az acr list \
+            --query "[?loginServer=='${REGISTRY}'].name | [0]" \
+            -o tsv)
+          echo "→ Found ACR resource: $ACR_NAME"
           az acr login --name "$ACR_NAME"
 
-      # 5. Build a SHA‐tagged image
+      # 4. Build the image tagged with the commit SHA
       - name: Build Docker image
         run: |
           SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
-          echo "Building $SHA_IMAGE"
+          echo "🛠 Building $SHA_IMAGE"
           docker build . -t "$SHA_IMAGE"
 
-      # 6. Run & smoke-test
+      # 5. Run & smoke-test the SHA-tagged image
       - name: Run & smoke-test container
         run: |
           SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
           docker run -d --name api-test -p 8000:8000 "$SHA_IMAGE"
+
           for i in {1..10}; do
             if curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
               echo "✅ Service is up"
@@ -62,32 +58,33 @@ jobs:
             echo "⏳ Waiting… ($i/10)"
             sleep 2
           done
+
           if ! curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
-            echo "❌ Service did not start; dumping logs:" >&2
+            echo "❌ Service did not start; logs below:" >&2
             docker logs api-test >&2
             exit 1
           fi
 
-      # 7. Tear down
+      # 6. Tear down the test container
       - name: Tear down test container
         if: always()
         run: |
           docker stop api-test || true
-          docker rm api-test  || true
+          docker rm api-test   || true
 
-      # 8. Tag & push SHA and latest
+      # 7. Tag & push both SHA and :latest images
       - name: Tag & push images to ACR
         run: |
           SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
           LATEST_IMAGE="$REGISTRY/proofreading-api:latest"
-          echo "Pushing $SHA_IMAGE"
+          echo "📤 Pushing SHA image"
           docker push "$SHA_IMAGE"
-          echo "Tagging $LATEST_IMAGE"
+          echo "🏷 Tagging latest"
           docker tag "$SHA_IMAGE" "$LATEST_IMAGE"
-          echo "Pushing $LATEST_IMAGE"
+          echo "📤 Pushing latest"
           docker push "$LATEST_IMAGE"
 
-      # 9. Deploy to Web App for Containers
+      # 8. Deploy to your Web App for Containers
       - name: Deploy to Azure Web App for Containers
         uses: azure/webapps-deploy@v2
         with:
