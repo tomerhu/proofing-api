@@ -1,12 +1,16 @@
+# .github/workflows/ci.yml
+
 name: CI/CD
 
 on:
   push:
-    branches: [ master ]
+    branches:
+      - master        # trigger on your master branch
 
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -17,7 +21,8 @@ jobs:
 
       - name: Run container
         run: |
-          docker run -d --name api-test -p 8000:8000 proofreading-api:test \
+          docker run -d --name api-test -p 8000:8000 \
+            proofreading-api:test \
             uvicorn main:app --host 0.0.0.0 --port 8000
 
       - name: Wait for service to start
@@ -31,11 +36,15 @@ jobs:
           fi
 
       - name: Tear down container
-        run: docker stop api-test
+        run: |
+          docker stop api-test
+          docker rm api-test
 
   deploy:
     needs: build-and-test
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master'
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
