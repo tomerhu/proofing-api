@@ -1,0 +1,20 @@
+# docker-compose.yml
+version: "3.8"
+
+services:
+  proofreading-api:
+    build: .
+    # Mount your code into the container for live edits
+    volumes:
+      - .:/app
+      - sqlite_data:/app/db
+      - .:/app
+      - ./db:/app/db
+    ports:
+      - "8000:8000"
+    environment:
+      # If you read DATABASE_URL from env in your code:
+      - DATABASE_URL=sqlite:///./db/app.db
+
+volumes:
+  sqlite_data:
