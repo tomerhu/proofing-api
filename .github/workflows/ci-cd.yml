@@ -1,0 +1,52 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Build Docker image
+        run: |
+          docker build . -t proofreading-api:test
+
+      - name: Run container
+        run: |
+          docker run -d --name api-test -p 8000:8000 proofreading-api:test \
+            uvicorn main:app --host 0.0.0.0 --port 8000
+
+      - name: Wait for service to start
+        run: sleep 10
+
+      - name: Smoke-test /ping endpoint
+        run: |
+          if ! curl --fail http://localhost:8000/ping | grep '"status":"ok"'; then
+            echo "Ping test failed" >&2
+            exit 1
+          fi
+
+      - name: Tear down container
+        run: docker stop api-test
+
+  deploy:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: ${{ secrets.AZURE_WEBAPP_NAME }}
+          package: .
