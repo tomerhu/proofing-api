@@ -1,0 +1,13 @@
+# === Virtual env ===
+venv/
+.env
+
+# === Python cache ===
+__pycache__/
+*.py[cod]
+
+# === SQLite DB (if you don’t want it in Git) ===
+*.db
+
+# === OS files ===
+.DS_Store
