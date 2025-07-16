@@ -23,7 +23,11 @@ DATABASE_URL = os.getenv(
 engine = create_engine(DATABASE_URL, echo=True)
 
 # ——— Read your App Insights connection string from .env ———
-conn_str = os.getenv("APPINSIGHTS_CONNECTION_STRING")
+instr_key = os.getenv("APPINSIGHTS_INSTRUMENTATION_KEY")
+if instr_key:
+    tc = TelemetryClient(instr_key)
+else:
+    tc = None
 
 app = FastAPI(
     title="Proofreading API MVP",
@@ -45,8 +49,6 @@ app.add_middleware(
     sampler=ProbabilitySampler(rate=1.0),
 )
 
-tc = TelemetryClient(conn_str)
-
 @app.middleware("http")
 async def catch_exceptions(request: Request, call_next):
     try:
@@ -54,8 +56,9 @@ async def catch_exceptions(request: Request, call_next):
         return response
     except Exception:
         # Automatically records the exception (stack trace + context)
-        tc.track_exception()
-        tc.flush()
+        if tc:
+            tc.track_exception()
+            tc.flush()
         # Re-raise so FastAPI still returns a 500
         raise
 
@@ -97,9 +100,10 @@ def proofread(req: ProofreadRequest):
     # Dummy suggestion
     span = {"start": 0, "end": 5}
     suggestion_text = "Dummy suggestion"
-
-    tc.track_metric("proofread_calls", 1)
-    tc.flush()
+    
+    if tc:
+        tc.track_metric("proofread_calls", 1)
+        tc.flush()
 
     # 4.2 – Persist into SQLite
     with Session(engine) as session:
