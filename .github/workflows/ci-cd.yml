@@ -1,5 +1,3 @@
-# .github/workflows/ci-cd.yml
-
 name: CI/CD
 
 on:
@@ -8,7 +6,7 @@ on:
       - master
 
 env:
-  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}  # e.g. proofreadingacr-<hash>.azurecr.io
+  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}  # your ACR login server
 
 jobs:
   build-test-push-deploy:
@@ -40,7 +38,7 @@ jobs:
             "$SHA_IMAGE"
 
           for i in {1..10}; do
-            if curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
+            if curl --fail http://localhost:8000/ping >/dev/null 2>&1; then
               echo "✅ Service is up"
               break
             fi
@@ -48,7 +46,7 @@ jobs:
             sleep 2
           done
 
-          if ! curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
+          if ! curl --fail http://localhost:8000/ping >/dev/null 2>&1; then
             echo "❌ Service did not start; dumping logs:" >&2
             docker logs api-test >&2
             exit 1
@@ -70,6 +68,12 @@ jobs:
           docker tag "$SHA_IMAGE" "$LATEST_IMAGE"
           echo "📤 Pushing latest"
           docker push "$LATEST_IMAGE"
+
+      # ← Insert Azure login here so azure/webapps-deploy has credentials
+      - name: Azure login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Deploy to Azure Web App for Containers
         uses: azure/webapps-deploy@v2
