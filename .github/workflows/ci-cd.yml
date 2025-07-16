@@ -8,18 +8,16 @@ on:
       - master
 
 env:
-  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}  # e.g. proofreadingacr-<hash>.azurecr.io
+  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
 
 jobs:
   build-test-push-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout your code
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2. Log in to ACR using admin credentials
       - name: Docker login to ACR
         uses: azure/docker-login@v1
         with:
@@ -27,52 +25,49 @@ jobs:
           username:     ${{ secrets.ACR_USERNAME }}
           password:     ${{ secrets.ACR_PASSWORD }}
 
-      # 3. Build the SHA‐tagged image
       - name: Build Docker image
         run: |
           SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
-          echo "🛠 Building $SHA_IMAGE"
           docker build . -t "$SHA_IMAGE"
 
-      # 4. Run & smoke-test the image
       - name: Run & smoke-test container
         run: |
           SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
-          docker run -d --name api-test -p 8000:8000 "$SHA_IMAGE"
+          docker run -d --name api-test \
+            -p 8000:8000 \
+            -e APPINSIGHTS_CONNECTION_STRING="${{ secrets.APPINSIGHTS_CONNECTION_STRING }}" \
+            -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            "$SHA_IMAGE"
+
           for i in {1..10}; do
-            if curl --fail http://localhost:8000/ping >/dev/null 2>&1; then
+            if curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
               echo "✅ Service is up"
               break
             fi
             echo "⏳ Waiting… ($i/10)"
             sleep 2
           done
-          if ! curl --fail http://localhost:8000/ping >/dev/null 2>&1; then
+
+          if ! curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
             echo "❌ Service did not start; dumping logs:" >&2
             docker logs api-test >&2
             exit 1
           fi
 
-      # 5. Tear down the test container
       - name: Tear down test container
         if: always()
         run: |
           docker stop api-test || true
           docker rm api-test   || true
 
-      # 6. Tag & push both SHA and :latest
       - name: Tag & push images to ACR
         run: |
           SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
           LATEST_IMAGE="$REGISTRY/proofreading-api:latest"
-          echo "📤 Pushing SHA image"
           docker push "$SHA_IMAGE"
-          echo "🏷 Tagging latest"
           docker tag "$SHA_IMAGE" "$LATEST_IMAGE"
-          echo "📤 Pushing latest"
           docker push "$LATEST_IMAGE"
 
-      # 7. Deploy to Azure Web App for Containers
       - name: Deploy to Azure Web App for Containers
         uses: azure/webapps-deploy@v2
         with:
