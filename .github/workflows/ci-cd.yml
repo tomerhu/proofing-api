@@ -8,7 +8,7 @@ on:
       - master
 
 env:
-  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}
+  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}  # e.g. proofreadingacr-<hash>.azurecr.io
 
 jobs:
   build-test-push-deploy:
@@ -28,6 +28,7 @@ jobs:
       - name: Build Docker image
         run: |
           SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
+          echo "🛠 Building $SHA_IMAGE"
           docker build . -t "$SHA_IMAGE"
 
       - name: Run & smoke-test container
@@ -36,7 +37,6 @@ jobs:
           docker run -d --name api-test \
             -p 8000:8000 \
             -e APPINSIGHTS_CONNECTION_STRING="${{ secrets.APPINSIGHTS_CONNECTION_STRING }}" \
-            -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
             "$SHA_IMAGE"
 
           for i in {1..10}; do
@@ -64,8 +64,11 @@ jobs:
         run: |
           SHA_IMAGE="$REGISTRY/proofreading-api:${{ github.sha }}"
           LATEST_IMAGE="$REGISTRY/proofreading-api:latest"
+          echo "📤 Pushing SHA image"
           docker push "$SHA_IMAGE"
+          echo "🏷 Tagging latest"
           docker tag "$SHA_IMAGE" "$LATEST_IMAGE"
+          echo "📤 Pushing latest"
           docker push "$LATEST_IMAGE"
 
       - name: Deploy to Azure Web App for Containers
