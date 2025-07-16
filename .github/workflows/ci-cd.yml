@@ -1,11 +1,9 @@
-# .github/workflows/ci.yml
-
 name: CI/CD
 
 on:
   push:
     branches:
-      - master        # trigger on your master branch
+      - master
 
 jobs:
   build-and-test:
@@ -19,31 +17,46 @@ jobs:
         run: |
           docker build . -t proofreading-api:test
 
-      - name: Run container
+      - name: Run container (detached)
         run: |
           docker run -d --name api-test -p 8000:8000 \
-            proofreading-api:test \
-            uvicorn main:app --host 0.0.0.0 --port 8000
+            proofreading-api:test
 
-      - name: Wait for service to start
-        run: sleep 10
+      - name: Wait for service to start (retry)
+        run: |
+          for i in {1..10}; do
+            if curl --fail http://localhost:8000/ping >/dev/null 2>&1; then
+              echo "✅ Service is up"
+              exit 0
+            fi
+            echo "⏳ Waiting for service… ($i)"
+            sleep 2
+          done
+          echo "❌ Service did not start in time" >&2
+          exit 1
 
       - name: Smoke-test /ping endpoint
         run: |
-          if ! curl --fail http://localhost:8000/ping | grep '"status":"ok"'; then
-            echo "Ping test failed" >&2
-            exit 1
-          fi
+          curl --fail http://localhost:8000/ping | grep '"status":"ok"'
+
+      - name: Debug container on failure
+        if: failure()
+        run: |
+          echo "=== Running containers ==="
+          docker ps -a
+          echo "=== Logs from api-test ==="
+          docker logs api-test
 
       - name: Tear down container
+        if: always()
         run: |
-          docker stop api-test
-          docker rm api-test
+          docker stop api-test || true
+          docker rm api-test  || true
 
   deploy:
     needs: build-and-test
-    runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
