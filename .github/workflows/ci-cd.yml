@@ -75,9 +75,14 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Select Azure subscription
+        run: |
+          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          echo "Using subscription: $(az account show --query id -o tsv)"
+
       - name: Deploy to Azure Web App for Containers
         uses: azure/webapps-deploy@v2
         with:
-          app-name:           proofreader-app-container-eebgembaa4g2h5gg
+          app-name:            proofreader-app-container
           resource-group-name: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          images:             ${{ env.REGISTRY }}/proofreading-api:latest
+          images:              ${{ env.REGISTRY }}/proofreading-api:latest
