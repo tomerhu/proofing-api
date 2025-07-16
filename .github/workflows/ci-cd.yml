@@ -1,3 +1,5 @@
+# .github/workflows/ci-cd.yml
+
 name: CI/CD
 
 on:
@@ -6,22 +8,24 @@ on:
       - master
 
 env:
-  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}  # your ACR login server
+  REGISTRY: ${{ secrets.ACR_LOGIN_SERVER }}   # your full login server
 
 jobs:
   build-test-push-deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Check out code
         uses: actions/checkout@v3
 
-      - name: Docker login to ACR
-        uses: azure/docker-login@v1
+      - name: Log in to Azure
+        uses: azure/login@v1
         with:
-          login-server: ${{ env.REGISTRY }}
-          username:     ${{ secrets.ACR_USERNAME }}
-          password:     ${{ secrets.ACR_PASSWORD }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to ACR
+        run: |
+          az acr login --name ${{ secrets.ACR_NAME }}
 
       - name: Build Docker image
         run: |
@@ -36,21 +40,17 @@ jobs:
             -p 8000:8000 \
             -e APPINSIGHTS_CONNECTION_STRING="${{ secrets.APPINSIGHTS_CONNECTION_STRING }}" \
             "$SHA_IMAGE"
-
           for i in {1..10}; do
             if curl --fail http://localhost:8000/ping >/dev/null 2>&1; then
               echo "✅ Service is up"
-              break
+              exit 0
             fi
             echo "⏳ Waiting… ($i/10)"
             sleep 2
           done
-
-          if ! curl --fail http://localhost:8000/ping >/dev/null 2>&1; then
-            echo "❌ Service did not start; dumping logs:" >&2
-            docker logs api-test >&2
-            exit 1
-          fi
+          echo "❌ Service did not start; dumping logs:" >&2
+          docker logs api-test >&2
+          exit 1
 
       - name: Tear down test container
         if: always()
@@ -64,25 +64,14 @@ jobs:
           LATEST_IMAGE="$REGISTRY/proofreading-api:latest"
           echo "📤 Pushing SHA image"
           docker push "$SHA_IMAGE"
-          echo "🏷 Tagging latest"
+          echo "🏷 Tagging :latest"
           docker tag "$SHA_IMAGE" "$LATEST_IMAGE"
           echo "📤 Pushing latest"
           docker push "$LATEST_IMAGE"
 
-      # ← Insert Azure login here so azure/webapps-deploy has credentials
-      - name: Azure login
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Select Azure subscription
-        run: |
-          az account set --subscription ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          echo "Using subscription: $(az account show --query id -o tsv)"
-
       - name: Deploy to Azure Web App for Containers
         uses: azure/webapps-deploy@v2
         with:
-          app-name:            proofreader-app-container
-          resource-group-name: proofreader-rg
-          images:              ${{ env.REGISTRY }}/proofreading-api:latest
+          app-name:           ${{ secrets.AZURE_WEBAPP_CONTAINER_NAME }}
+          resource-group-name: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          images:             ${{ env.REGISTRY }}/proofreading-api:latest
