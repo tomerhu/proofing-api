@@ -19,25 +19,24 @@ jobs:
 
       - name: Run container
         run: |
-          docker run -d --name api-test -p 8000:8000 proofreading-api:test
+          docker run -d --name api-test \
+            -p 8000:8000 \
+            -e APPINSIGHTS_CONNECTION_STRING="${{ secrets.APPINSIGHTS_CONNECTION_STRING }}" \
+            proofreading-api:test
 
-      - name: Health-check `/ping`
+      - name: Health-check /ping
         run: |
           for i in {1..10}; do
             if curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
               echo "✅ Service is up"
-              break
+              exit 0
             fi
-            echo "⏳ Waiting for service… ($i/10)"
+            echo "⏳ Waiting… ($i/10)"
             sleep 2
           done
-
-          # final check + debug if it never came up:
-          if ! curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
-            echo "❌ Service did not start in time; dumping container logs:" >&2
-            docker logs api-test >&2
-            exit 1
-          fi
+          echo "❌ Service did not start in time" >&2
+          docker logs api-test >&2
+          exit 1
 
       - name: Tear down container
         if: always()

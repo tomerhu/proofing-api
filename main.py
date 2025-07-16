@@ -12,6 +12,9 @@ from fastapi.staticfiles import StaticFiles
 from models import Suggestion
 from pydantic import BaseModel
 from typing import List
+from dotenv import load_dotenv
+
+load_dotenv()
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",

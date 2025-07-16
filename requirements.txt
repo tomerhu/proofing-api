@@ -23,3 +23,4 @@ opencensus-ext-azure
 opencensus-ext-fastapi
 opencensus-ext-logging
 applicationinsights
+python-dotenv
