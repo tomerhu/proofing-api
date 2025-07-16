@@ -17,35 +17,27 @@ jobs:
         run: |
           docker build . -t proofreading-api:test
 
-      - name: Run container (detached)
+      - name: Run container
         run: |
-          docker run -d --name api-test -p 8000:8000 \
-            proofreading-api:test
+          docker run -d --name api-test -p 8000:8000 proofreading-api:test
 
-      - name: Wait for service to start (retry)
+      - name: Health-check `/ping`
         run: |
           for i in {1..10}; do
-            if curl --fail http://localhost:8000/ping >/dev/null 2>&1; then
+            if curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
               echo "✅ Service is up"
-              exit 0
+              break
             fi
-            echo "⏳ Waiting for service… ($i)"
+            echo "⏳ Waiting for service… ($i/10)"
             sleep 2
           done
-          echo "❌ Service did not start in time" >&2
-          exit 1
 
-      - name: Smoke-test /ping endpoint
-        run: |
-          curl --fail http://localhost:8000/ping | grep '"status":"ok"'
-
-      - name: Debug container on failure
-        if: failure()
-        run: |
-          echo "=== Running containers ==="
-          docker ps -a
-          echo "=== Logs from api-test ==="
-          docker logs api-test
+          # final check + debug if it never came up:
+          if ! curl --fail http://localhost:8000/ping > /dev/null 2>&1; then
+            echo "❌ Service did not start in time; dumping container logs:" >&2
+            docker logs api-test >&2
+            exit 1
+          fi
 
       - name: Tear down container
         if: always()
